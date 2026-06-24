@@ -6,7 +6,7 @@ import pandas as pd
 import ta
 from datetime import datetime, timedelta, timezone
 
-TIMEFRAME = "15m"
+TIMEFRAME = "1h"
 
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
@@ -25,14 +25,14 @@ CLOSE_TP2 = 0.30
 CLOSE_TP3 = 0.20
 CLOSE_TP4 = 0.10
 
-TP1_PCT = 0.5
-TP2_PCT = 1.0
-TP3_PCT = 2.0
-TP4_PCT = 4.0
-SL_PCT = 1.0
-BE_PCT = 0.1
+TP1_PCT = 0.8
+TP2_PCT = 2.0
+TP3_PCT = 4.0
+TP4_PCT = 8.0
+SL_PCT = 4.0
+BE_PCT = 0.2
 
-COOLDOWN = 20
+COOLDOWN = 0
 VOLUME_STRENGTH_THRESHOLD = 70
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
@@ -70,13 +70,14 @@ def run_backtest():
     total_fees = 0
 
     strategy_stats = {
+        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
         "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
-    print(f"Strategy: Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Strategies: Pullback + Volume + EMA Trend | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
     print(f"Swing Trend: REMOVED")
 
@@ -104,9 +105,11 @@ def run_backtest():
                 co = df['open'].iloc[i]
 
                 pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
+                               (df['ema_21'].iloc[i] > df['ema_50'].iloc[i]) and \
                                (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
                                (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
                 pullback_sell = (df['ema_50'].iloc[i] < df['ema_200'].iloc[i]) and \
+                                (df['ema_21'].iloc[i] < df['ema_50'].iloc[i]) and \
                                 (df['high'].iloc[i] >= df['ema_21'].iloc[i]) and \
                                 (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 40)
                 
@@ -336,9 +339,9 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - VOLUME ONLY (SCALPING)")
-    print("  15m Timeframe | 3 Months | 25 Coins")
-    print("  TP1=0.5% TP2=1% TP3=2% TP4=4% | SL=1% | BE=+/-0.1% after TP1")
+    print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
+    print("  1H Timeframe | 3 Months | 25 Coins | No Cooldown")
+    print("  TP1=0.8% TP2=2% TP3=4% TP4=8% | SL=4% | BE=+/-0.2% after TP1 | EMA Trend Filter")
     print("  Leverage: 7x | Fees: 0.7% per side")
     print("  Volume Strength Threshold: 70+")
     print("=" * 75)
