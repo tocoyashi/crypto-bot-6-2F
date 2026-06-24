@@ -32,8 +32,8 @@ TP4_PCT = 12.0
 SL_PCT = 8.0
 BE_PCT = 0.25
 
-COOLDOWN = 75
-VOLUME_STRENGTH_THRESHOLD = 85
+COOLDOWN = 50
+VOLUME_STRENGTH_THRESHOLD = 70
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
     all_data = []
@@ -104,29 +104,18 @@ def run_backtest():
                 cc = df['close'].iloc[i]
                 co = df['open'].iloc[i]
 
-                # إضافة مؤشر ADX لقياس قوة الاتجاه
-                adx = ta.trend.adx(df['high'], df['low'], df['close'], window=14)
-
                 pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
-                               (df['ema_21'].iloc[i] > df['ema_50'].iloc[i]) and \
                                (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
-                               (cc > df['ema_21'].iloc[i]) and \
-                               (df['rsi'].iloc[i] < 55) and (df['rsi'].iloc[i] > 35) and \
-                               (adx.iloc[i] > 25)
+                               (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
                 pullback_sell = (df['ema_50'].iloc[i] < df['ema_200'].iloc[i]) and \
-                                (df['ema_21'].iloc[i] < df['ema_50'].iloc[i]) and \
                                 (df['high'].iloc[i] >= df['ema_21'].iloc[i]) and \
-                                (cc < df['ema_21'].iloc[i]) and \
-                                (df['rsi'].iloc[i] > 45) and (df['rsi'].iloc[i] < 65) and \
-                                (adx.iloc[i] > 25)
+                                (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 40)
                 
-                vol_buy = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 3.5) and \
-                           (cc > co) and (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 65)
-                vol_sell = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 3.5) and \
-                            (cc < co) and (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 35)
+                vol_buy = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc > co)
+                vol_sell = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc < co)
                 
                 vol_ratio = df['volume'].iloc[i] / df['vol_sma'].iloc[i] if df['vol_sma'].iloc[i] > 0 else 0
-                vol_strength = min(100, vol_ratio * 12 + 15)
+                vol_strength = min(100, vol_ratio * 15 + 25)
 
                 direction = None
                 strategy = None
@@ -352,7 +341,7 @@ def run_backtest():
     print("  4H Timeframe | 3 Months | 25 Coins")
     print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
     print("  Leverage: 7x | Fees: 0.7% per side")
-    print("  Volume Strength Threshold: 85+")
+    print("  Volume Strength Threshold: 70+")
     print("=" * 75)
 
     print(f"\n  OVERVIEW")
