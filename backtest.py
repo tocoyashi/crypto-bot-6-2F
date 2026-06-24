@@ -17,8 +17,8 @@ SYMBOLS = [
     "PEPE/USDT", "FET/USDT"
 ]
 
-LEVERAGE = 10
-FEE_PER_SIDE = 1.0  # 1% per side (0.1% x 10x leverage)
+LEVERAGE = 5  # ✅ تقليل الرافعة إلى 5x
+FEE_PER_SIDE = 0.5  # ✅ 0.5% per side (0.1% x 5x)
 
 CLOSE_TP1 = 0.50
 CLOSE_TP2 = 0.25
@@ -29,7 +29,7 @@ TP1_PCT = 1.2
 TP2_PCT = 3.0
 TP3_PCT = 6.0
 TP4_PCT = 12.0
-SL_PCT = 8.0
+SL_PCT = 5.0  # ✅ وقف الخسارة 5%
 BE_PCT = 0.25
 
 COOLDOWN = 50
@@ -68,15 +68,15 @@ def run_backtest():
     timeout_pnl = 0
     total_fees = 0
 
+    # ✅ استراتيجية واحدة فقط: Swing Volume
     strategy_stats = {
-        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
-        "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
-        "Swing Trend":    {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Volume": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
+    print(f"Strategy: Swing Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
 
     for symbol in SYMBOLS:
         try:
@@ -101,25 +101,18 @@ def run_backtest():
                 cc = df['close'].iloc[i]
                 co = df['open'].iloc[i]
 
-                pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
-                               (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
-                               (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
-                pullback_sell = (df['ema_50'].iloc[i] < df['ema_200'].iloc[i]) and \
-                                (df['high'].iloc[i] >= df['ema_21'].iloc[i]) and \
-                                (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 40)
+                # ✅ Swing Volume فقط (حذف Pullback و Trend)
                 vol_buy = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc > co)
                 vol_sell = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc < co)
-                swing_buy = (df['ema_50'].iloc[i-1] <= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] > df['ema_200'].iloc[i])
-                swing_sell = (df['ema_50'].iloc[i-1] >= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] < df['ema_200'].iloc[i])
 
                 direction = None
                 strategy = None
-                if pullback_buy:     direction = "LONG";  strategy = "Swing Pullback"
-                elif pullback_sell:  direction = "SHORT"; strategy = "Swing Pullback"
-                elif vol_buy:        direction = "LONG";  strategy = "Swing Volume"
-                elif vol_sell:       direction = "SHORT"; strategy = "Swing Volume"
-                elif swing_buy:      direction = "LONG";  strategy = "Swing Trend"
-                elif swing_sell:     direction = "SHORT"; strategy = "Swing Trend"
+                if vol_buy:
+                    direction = "LONG"
+                    strategy = "Swing Volume"
+                elif vol_sell:
+                    direction = "SHORT"
+                    strategy = "Swing Volume"
 
                 if not direction:
                     continue
@@ -325,10 +318,10 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - PARTIAL CLOSE (50/25/15/10) + BE SL")
-    print("  4H Timeframe | 3 Months | 25 Coins | 10x Leverage")
-    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
-    print("  Fees: 1% per side (0.1% x 10x)")
+    print("  SWING BOT BACKTEST - SWING VOLUME ONLY + 5x LEVERAGE")
+    print("  4H Timeframe | 3 Months | 25 Coins")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=5% | BE=+/-0.25% after TP1")
+    print("  Fees: 0.5% per side (0.1% x 5x)")
     print("=" * 75)
 
     print(f"\n  OVERVIEW")
@@ -385,11 +378,11 @@ def run_backtest():
     print(f"  {'-'*65}")
     print(f"  {'Outcome':<25} {'Closed At':<20} {'Remaining':<10} {'Net Effect':<15}")
     print(f"  {'-'*65}")
-    print(f"  {'SL':<25} {'100% at -80%':<20} {'0%':<10} {'-80% - 2% fee':<15}")
-    print(f"  {'BE SL (after TP1)':<25} {'50% at +12%':<20} {'50% at +2.5%':<10} {'+7.25% - 2% fee':<15}")
-    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +2.5%':<10} {'+15.6% - 2% fee':<15}")
-    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +2.5%':<10} {'+24.8% - 2% fee':<15}")
-    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+32.5% - 2% fee':<15}")
+    print(f"  {'SL':<25} {'100% at -25%':<20} {'0%':<10} {'-25% - 1% fee':<15}")
+    print(f"  {'BE SL (after TP1)':<25} {'50% at +6%':<20} {'50% at +1.25%':<10} {'+3.6% - 1% fee':<15}")
+    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +1.25%':<10} {'+7.8% - 1% fee':<15}")
+    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +1.25%':<10} {'+12.4% - 1% fee':<15}")
+    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+16.25% - 1% fee':<15}")
 
     print(f"\n  RECENT TRADES")
     print(f"  {'-'*75}")
