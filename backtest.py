@@ -1,215 +1,405 @@
-import os
 import ssl
-import pandas as pd
-import ta
-import ccxt
-from datetime import datetime, timedelta
-
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# Added 10 new strong coins (Total 30)
+import ccxt
+import pandas as pd
+import ta
+from datetime import datetime, timedelta, timezone
+
+TIMEFRAME = "4h"
+
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
     "ADA/USDT", "DOGE/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
-    "DOT/USDT", "POL/USDT", "SHIB/USDT", "LTC/USDT", "UNI/USDT",
+    "POL/USDT", "LTC/USDT", "UNI/USDT",
     "ATOM/USDT", "XLM/USDT", "NEAR/USDT", "APT/USDT", "SUI/USDT",
-    "ARB/USDT", "OP/USDT", "INJ/USDT", "TIA/USDT", "FIL/USDT",
-    "AAVE/USDT", "GRT/USDT", "FET/USDT", "PEPE/USDT", "FLOKI/USDT"
+    "INJ/USDT", "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
+    "PEPE/USDT", "FET/USDT"
 ]
 
-def get_decimals(price):
-    if price > 100: return 2
-    elif price > 1: return 3
-    elif price > 0.01: return 5
-    else: return 8
+LEVERAGE = 10
+FEE_PER_SIDE = 1.0  # 1% per side (0.1% x 10x leverage)
+
+CLOSE_TP1 = 0.50
+CLOSE_TP2 = 0.25
+CLOSE_TP3 = 0.15
+CLOSE_TP4 = 0.10
+
+TP1_PCT = 1.2
+TP2_PCT = 3.0
+TP3_PCT = 6.0
+TP4_PCT = 12.0
+SL_PCT = 8.0
+BE_PCT = 0.25
+
+COOLDOWN = 50
+
+def fetch_all_ohlcv(exchange, symbol, timeframe, since):
+    all_data = []
+    current_since = since
+    while True:
+        batch = exchange.fetch_ohlcv(symbol, timeframe, since=current_since, limit=1000)
+        if not batch:
+            break
+        all_data.extend(batch)
+        current_since = batch[-1][0] + 1
+        if len(batch) < 1000:
+            break
+    return all_data
+
 
 def run_backtest():
     exchange = ccxt.mexc()
-    since = exchange.parse8601((datetime.utcnow() - timedelta(days=90)).isoformat())
-    
-    total_trades = 0
-    tp1_hits = 0
-    tp2_hits = 0
-    tp3_hits = 0
-    tp4_hits = 0
-    real_losses = 0
-    be_sl_hits = 0
-    total_profit_pct = 0
-    trade_log = []
-    
-    # ✨ Cooldown Tracker: Saves the last time a signal was sent for each coin
-    last_signal_time = {}
+    since = exchange.parse8601((datetime.now(timezone.utc) - timedelta(days=90)).isoformat())
 
-    print(f"Fetching 3 months of data for {len(SYMBOLS)} coins...")
+    total = 0
+    sl_count = 0
+    be_after_tp1 = 0
+    be_after_tp2 = 0
+    be_after_tp3 = 0
+    tp4_full = 0
+    timeouts = 0
+
+    sl_pnl = 0
+    be_tp1_pnl = 0
+    be_tp2_pnl = 0
+    be_tp3_pnl = 0
+    tp4_pnl = 0
+    timeout_pnl = 0
+    total_fees = 0
+
+    strategy_stats = {
+        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Trend":    {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+    }
+
+    trade_log = []
+
+    print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
 
     for symbol in SYMBOLS:
         try:
-            ohlcv_15m = exchange.fetch_ohlcv(symbol, "15m", since=since, limit=1000)
-            ohlcv_1h = exchange.fetch_ohlcv(symbol, "1h", since=since, limit=1000)
-            
-            df_15m = pd.DataFrame(ohlcv_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_1h = pd.DataFrame(ohlcv_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            
-            if len(df_15m) < 100 or len(df_1h) < 100: continue
+            ohlcv = fetch_all_ohlcv(exchange, symbol, TIMEFRAME, since)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-            df_15m['ema_9'] = df_15m['close'].ewm(span=9, adjust=False).mean()
-            df_15m['ema_21'] = df_15m['close'].ewm(span=21, adjust=False).mean()
-            macd_hist_15m = ta.trend.macd_diff(df_15m['close'])
-            df_15m['macd'] = macd_hist_15m
+            if len(df) < 220:
+                continue
 
-            df_1h['ema_9'] = df_1h['close'].ewm(span=9, adjust=False).mean()
-            df_1h['ema_21'] = df_1h['close'].ewm(span=21, adjust=False).mean()
-            macd_hist_1h = ta.trend.macd_diff(df_1h['close'])
-            df_1h['macd'] = macd_hist_1h
+            df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
+            df['ema_50'] = df['close'].ewm(span=50, adjust=False).mean()
+            df['ema_200'] = df['close'].ewm(span=200, adjust=False).mean()
+            df['rsi'] = ta.momentum.rsi(df['close'], window=14)
+            df['vol_sma'] = df['volume'].rolling(window=20).mean()
 
-            df_1h.index = pd.to_datetime(df_1h['timestamp'], unit='ms')
-            df_15m.index = pd.to_datetime(df_15m['timestamp'], unit='ms')
-            df_1h_aligned = df_1h.resample('15min').ffill()
-            df_15m = df_15m.join(df_1h_aligned, rsuffix='_1h', how='left').ffill()
+            last_signal_idx = -COOLDOWN - 1
 
-            for i in range(100, len(df_15m) - 96): 
-                curr_close = df_15m['close'].iloc[i]
-                curr_time = df_15m.index[i]
-                dec = get_decimals(curr_close)
+            for i in range(200, len(df) - 1):
+                if i - last_signal_idx < COOLDOWN:
+                    continue
 
-                # 1. Check 1H Trend
-                trend_1h_long = (df_15m['ema_9_1h'].iloc[i] > df_15m['ema_21_1h'].iloc[i])
-                trend_1h_short = (df_15m['ema_9_1h'].iloc[i] < df_15m['ema_21_1h'].iloc[i])
+                cc = df['close'].iloc[i]
+                co = df['open'].iloc[i]
 
-                # 2. Check 15m Trigger
-                trig_buy_15m = (df_15m['ema_9'].iloc[i-1] < df_15m['ema_21'].iloc[i-1]) and (df_15m['ema_9'].iloc[i] > df_15m['ema_21'].iloc[i])
-                trig_sell_15m = (df_15m['ema_9'].iloc[i-1] > df_15m['ema_21'].iloc[i-1]) and (df_15m['ema_9'].iloc[i] < df_15m['ema_21'].iloc[i])
-                macd_buy_15m = (df_15m['macd'].iloc[i-1] < 0) and (df_15m['macd'].iloc[i] > 0)
-                macd_sell_15m = (df_15m['macd'].iloc[i-1] > 0) and (df_15m['macd'].iloc[i] < 0)
+                pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
+                               (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
+                               (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
+                pullback_sell = (df['ema_50'].iloc[i] < df['ema_200'].iloc[i]) and \
+                                (df['high'].iloc[i] >= df['ema_21'].iloc[i]) and \
+                                (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 40)
+                vol_buy = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc > co)
+                vol_sell = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc < co)
+                swing_buy = (df['ema_50'].iloc[i-1] <= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] > df['ema_200'].iloc[i])
+                swing_sell = (df['ema_50'].iloc[i-1] >= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] < df['ema_200'].iloc[i])
 
                 direction = None
-                if trend_1h_long and (trig_buy_15m or macd_buy_15m): direction = "LONG"
-                elif trend_1h_short and (trig_sell_15m or macd_sell_15m): direction = "SHORT"
+                strategy = None
+                if pullback_buy:     direction = "LONG";  strategy = "Swing Pullback"
+                elif pullback_sell:  direction = "SHORT"; strategy = "Swing Pullback"
+                elif vol_buy:        direction = "LONG";  strategy = "Swing Volume"
+                elif vol_sell:       direction = "SHORT"; strategy = "Swing Volume"
+                elif swing_buy:      direction = "LONG";  strategy = "Swing Trend"
+                elif swing_sell:     direction = "SHORT"; strategy = "Swing Trend"
 
-                if not direction: continue
+                if not direction:
+                    continue
 
-                # ✨ 3. COOLDOWN CHECK (24 Hours)
-                if symbol in last_signal_time:
-                    time_since_last = curr_time - last_signal_time[symbol]
-                    if time_since_last < timedelta(hours=24):
-                        continue # Skip signal, still in cooldown period
+                entry = cc
+                last_signal_idx = i
+                total += 1
+                strategy_stats[strategy]["signals"] += 1
 
-                # Calculate Levels
                 if direction == "LONG":
-                    tp1, tp2, tp3, tp4 = round(curr_close * 1.0105, dec), round(curr_close * 1.025, dec), round(curr_close * 1.04, dec), round(curr_close * 1.065, dec)
-                    sl = round(curr_close * 0.96, dec)
-                    be_sl = round(curr_close * 1.0025, dec)
+                    tp1_l = entry * (1 + TP1_PCT/100)
+                    tp2_l = entry * (1 + TP2_PCT/100)
+                    tp3_l = entry * (1 + TP3_PCT/100)
+                    tp4_l = entry * (1 + TP4_PCT/100)
+                    sl_l  = entry * (1 - SL_PCT/100)
+                    be_l  = entry * (1 + BE_PCT/100)
                 else:
-                    tp1, tp2, tp3, tp4 = round(curr_close * 0.9895, dec), round(curr_close * 0.975, dec), round(curr_close * 0.96, dec), round(curr_close * 0.935, dec)
-                    sl = round(curr_close * 1.04, dec)
-                    be_sl = round(curr_close * 0.9975, dec)
+                    tp1_l = entry * (1 - TP1_PCT/100)
+                    tp2_l = entry * (1 - TP2_PCT/100)
+                    tp3_l = entry * (1 - TP3_PCT/100)
+                    tp4_l = entry * (1 - TP4_PCT/100)
+                    sl_l  = entry * (1 + SL_PCT/100)
+                    be_l  = entry * (1 - BE_PCT/100)
 
-                # ✨ 4. REGISTER SIGNAL (Update Cooldown Timer)
-                last_signal_time[symbol] = curr_time
-
-                future_candles = df_15m.iloc[i+1 : i+97]
-                if len(future_candles) < 10: continue
+                future = df.iloc[i+1:i+201]
+                if len(future) < 10:
+                    continue
 
                 state = 0
+                remaining = 1.0
+                pnl = -FEE_PER_SIDE
+                fees_paid = FEE_PER_SIDE
                 outcome = ""
-                final_pnl = 0.0
+                hit_tp = 0
 
-                for index, row in future_candles.iterrows():
+                for idx, row in future.iterrows():
                     if direction == "LONG":
                         if state == 0:
-                            if row['high'] >= tp1:
+                            if row['low'] <= sl_l:
+                                pnl += remaining * (-SL_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "SL"
+                                break
+                            if row['high'] >= tp1_l:
+                                pnl += CLOSE_TP1 * (TP1_PCT * LEVERAGE) - CLOSE_TP1 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP1 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP1
+                                hit_tp = 1
                                 state = 1
-                                final_pnl += 1.05
                                 continue
-                            if row['low'] <= sl:
-                                outcome = "SL Hit (Before TP1)"
-                                final_pnl -= 4.0
+                        if state == 1:
+                            if row['low'] <= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP1)"
                                 break
-                        elif state == 1:
-                            if row['high'] >= tp2:
-                                outcome = "TP2 Hit"
-                                final_pnl += 1.45
+                            if row['high'] >= tp2_l:
+                                pnl += CLOSE_TP2 * (TP2_PCT * LEVERAGE) - CLOSE_TP2 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP2 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP2
+                                hit_tp = 2
+                                state = 2
+                                continue
+                        if state == 2:
+                            if row['low'] <= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP2)"
                                 break
-                            if row['high'] >= tp3:
-                                outcome = "TP3 Hit"
-                                final_pnl += 3.0
+                            if row['high'] >= tp3_l:
+                                pnl += CLOSE_TP3 * (TP3_PCT * LEVERAGE) - CLOSE_TP3 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP3 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP3
+                                hit_tp = 3
+                                state = 3
+                                continue
+                        if state == 3:
+                            if row['low'] <= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP3)"
                                 break
-                            if row['high'] >= tp4:
-                                outcome = "TP4 Hit"
-                                final_pnl += 5.45
+                            if row['high'] >= tp4_l:
+                                pnl += remaining * (TP4_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                remaining -= CLOSE_TP4
+                                hit_tp = 4
+                                outcome = "TP4 (All Targets)"
                                 break
-                            if row['low'] <= be_sl:
-                                outcome = "BE SL Hit"
-                                final_pnl -= 0.25
-                                break
-                                
-                    elif direction == "SHORT":
+                    else:
                         if state == 0:
-                            if row['low'] <= tp1:
+                            if row['high'] >= sl_l:
+                                pnl += remaining * (-SL_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "SL"
+                                break
+                            if row['low'] <= tp1_l:
+                                pnl += CLOSE_TP1 * (TP1_PCT * LEVERAGE) - CLOSE_TP1 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP1 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP1
+                                hit_tp = 1
                                 state = 1
-                                final_pnl += 1.05
                                 continue
-                            if row['high'] >= sl:
-                                outcome = "SL Hit (Before TP1)"
-                                final_pnl -= 4.0
+                        if state == 1:
+                            if row['high'] >= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP1)"
                                 break
-                        elif state == 1:
-                            if row['low'] <= tp2:
-                                outcome = "TP2 Hit"
-                                final_pnl += 1.45
+                            if row['low'] <= tp2_l:
+                                pnl += CLOSE_TP2 * (TP2_PCT * LEVERAGE) - CLOSE_TP2 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP2 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP2
+                                hit_tp = 2
+                                state = 2
+                                continue
+                        if state == 2:
+                            if row['high'] >= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP2)"
                                 break
-                            if row['low'] <= tp3:
-                                outcome = "TP3 Hit"
-                                final_pnl += 3.0
+                            if row['low'] <= tp3_l:
+                                pnl += CLOSE_TP3 * (TP3_PCT * LEVERAGE) - CLOSE_TP3 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP3 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP3
+                                hit_tp = 3
+                                state = 3
+                                continue
+                        if state == 3:
+                            if row['high'] >= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP3)"
                                 break
-                            if row['low'] <= tp4:
-                                outcome = "TP4 Hit"
-                                final_pnl += 5.45
-                                break
-                            if row['high'] >= be_sl:
-                                outcome = "BE SL Hit"
-                                final_pnl -= 0.25
+                            if row['low'] <= tp4_l:
+                                pnl += remaining * (TP4_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                remaining -= CLOSE_TP4
+                                hit_tp = 4
+                                outcome = "TP4 (All Targets)"
                                 break
 
-                if outcome == "": 
-                    outcome = "TIMEOUT"
-                    final_pnl -= 0.5 if state == 0 else 0.0
+                if outcome == "":
+                    last_c = future.iloc[-1]['close']
+                    if direction == "LONG":
+                        raw_move = ((last_c / entry) - 1) * 100
+                    else:
+                        raw_move = ((entry / last_c) - 1) * 100
+                    if state == 0:
+                        pnl += remaining * (raw_move * LEVERAGE) - remaining * FEE_PER_SIDE
+                        fees_paid += remaining * FEE_PER_SIDE
+                        outcome = "TIMEOUT (no TP)"
+                    else:
+                        pnl += remaining * (raw_move * LEVERAGE) - remaining * FEE_PER_SIDE
+                        fees_paid += remaining * FEE_PER_SIDE
+                        outcome = f"TIMEOUT (after TP{hit_tp})"
+                    timeouts += 1
+                    timeout_pnl += pnl
+                    strategy_stats[strategy]["pnl"] += pnl
+                    trade_log.append((outcome, symbol, direction, strategy, pnl))
+                    total_fees += fees_paid
+                    continue
 
-                total_trades += 1
-                total_profit_pct += final_pnl
-                
-                if "TP1" in outcome: tp1_hits += 1
-                if "TP2" in outcome: tp2_hits += 1
-                if "TP3" in outcome: tp3_hits += 1
-                if "TP4" in outcome: tp4_hits += 1
-                if "SL Hit (Before TP1)" in outcome: real_losses += 1
-                if "BE SL Hit" in outcome: be_sl_hits += 1
+                total_fees += fees_paid
 
-                log_emoji = "🟢" if final_pnl > 0 else "🔴"
-                trade_log.append(f"{log_emoji} {outcome:20s} | {symbol:10s} | {direction:5s} | PnL: {final_pnl:+.2f}%")
+                if outcome == "SL":
+                    sl_count += 1
+                    sl_pnl += pnl
+                    strategy_stats[strategy]["sl"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome.startswith("BE SL (after TP1)"):
+                    be_after_tp1 += 1
+                    be_tp1_pnl += pnl
+                    strategy_stats[strategy]["wins"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome.startswith("BE SL (after TP2)"):
+                    be_after_tp2 += 1
+                    be_tp2_pnl += pnl
+                    strategy_stats[strategy]["wins"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome.startswith("BE SL (after TP3)"):
+                    be_after_tp3 += 1
+                    be_tp3_pnl += pnl
+                    strategy_stats[strategy]["wins"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome == "TP4 (All Targets)":
+                    tp4_full += 1
+                    tp4_pnl += pnl
+                    strategy_stats[strategy]["wins"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome.startswith("TIMEOUT"):
+                    timeout_pnl += pnl
+                    strategy_stats[strategy]["pnl"] += pnl
 
-        except Exception as e:
-            pass 
+                trade_log.append((outcome, symbol, direction, strategy, pnl))
 
-    print("\n" + "="*60)
-    print("📊 ADVANCED BACKTEST REPORT (LAST 3 MONTHS - WITH 24H COOLDOWN)")
-    print("="*60)
-    print(f"Total Clean Signals: {total_trades}")
-    print("-" * 60)
-    print(f"✅ Hit TP1 (Moved to BE): {tp1_hits} ({(tp1_hits/total_trades)*100:.1f}%)")
-    print(f"📈 Hit TP2: {tp2_hits}")
-    print(f"🚀 Hit TP3: {tp3_hits}")
-    print(f"🏆 Hit TP4 (Full Target): {tp4_hits}")
-    print("-" * 60)
-    print(f"❌ Real Losses (SL before TP1): {real_losses}")
-    print(f"🛑 BE Stop Losses (After TP1): {be_sl_hits}")
-    print("="*60)
-    print(f"Net Profit (Simulated): {total_profit_pct:.2f}%")
-    print("="*60)
-    print("Recent Trade Log:")
-    for log in trade_log[-15:]:
-        print(log)
-    print("="*60)
+        except Exception:
+            pass
+
+    net_total = sl_pnl + be_tp1_pnl + be_tp2_pnl + be_tp3_pnl + tp4_pnl + timeout_pnl
+    wins = be_after_tp1 + be_after_tp2 + be_after_tp3 + tp4_full
+    losses = sl_count + timeouts
+
+    print("\n" + "=" * 75)
+    print("  SWING BOT BACKTEST - PARTIAL CLOSE (50/25/15/10) + BE SL")
+    print("  4H Timeframe | 3 Months | 25 Coins | 10x Leverage")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
+    print("  Fees: 1% per side (0.1% x 10x)")
+    print("=" * 75)
+
+    print(f"\n  OVERVIEW")
+    print(f"  {'Total Signals:':<35} {total}")
+    print(f"  {'Win Rate (hit at least TP1):':<35} {wins}/{total} = {wins/total*100:.1f}%" if total else "")
+    print(f"  {'SL Rate (SL before TP1):':<35} {sl_count}/{total} = {sl_count/total*100:.1f}%" if total else "")
+
+    print(f"\n  OUTCOMES")
+    print(f"  {'Outcome':<25} {'Count':<10} {'Rate':<10} {'Avg PnL':<12} {'Total PnL':<15}")
+    print(f"  {'-'*72}")
+
+    def safe_rate(c):
+        return f"{c/total*100:.1f}%" if total > 0 else "-"
+
+    rows = [
+        ("SL (before TP1)",        sl_count,       sl_pnl),
+        ("BE SL (after TP1)",     be_after_tp1,   be_tp1_pnl),
+        ("BE SL (after TP2)",     be_after_tp2,   be_tp2_pnl),
+        ("BE SL (after TP3)",     be_after_tp3,   be_tp3_pnl),
+        ("TP4 (All Targets)",     tp4_full,       tp4_pnl),
+        ("Timeout",               timeouts,        timeout_pnl),
+    ]
+    for label, cnt, accum in rows:
+        avg = accum / cnt if cnt > 0 else 0
+        print(f"  {label:<25} {cnt:<10} {safe_rate(cnt):<10} {avg:>+11.2f}%   {accum:>+14.2f}%")
+
+    print(f"\n  FINANCIAL SUMMARY")
+    print(f"  {'-'*50}")
+    print(f"  {'Gross PnL (before fees):':<35} {net_total + total_fees:>+10.2f}%")
+    print(f"  {'Total Fees Paid:':<35} {-total_fees:>+10.2f}%")
+    print(f"  {'NET PROFIT:':<35} {net_total:>+10.2f}%")
+    if total > 0:
+        print(f"  {'Avg PnL per Signal:':<35} {net_total/total:>+10.2f}%")
+    if wins > 0 and losses > 0:
+        avg_win = (be_tp1_pnl + be_tp2_pnl + be_tp3_pnl + tp4_pnl) / wins
+        avg_loss = (sl_pnl + timeout_pnl) / losses
+        print(f"  {'Avg Winning Trade:':<35} {avg_win:>+10.2f}%")
+        print(f"  {'Avg Losing Trade:':<35} {avg_loss:>+10.2f}%")
+        rr = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+        print(f"  {'Risk/Reward Ratio:':<35} 1 : {rr:.2f}")
+
+    print(f"\n  PER-STRATEGY BREAKDOWN")
+    print(f"  {'-'*65}")
+    print(f"  {'Strategy':<20} {'Signals':<10} {'Win Rate':<12} {'SL Rate':<12} {'Net PnL':<12}")
+    print(f"  {'-'*65}")
+    for s, st in strategy_stats.items():
+        if st["signals"] > 0:
+            n = st["signals"]
+            wr = st["wins"]/n*100 if n > 0 else 0
+            sr = st["sl"]/n*100 if n > 0 else 0
+            print(f"  {s:<20} {n:<10} {wr:.1f}%        {sr:.1f}%        {st['pnl']:>+10.2f}%")
+
+    print(f"\n  POSITION BREAKDOWN PER OUTCOME")
+    print(f"  {'-'*65}")
+    print(f"  {'Outcome':<25} {'Closed At':<20} {'Remaining':<10} {'Net Effect':<15}")
+    print(f"  {'-'*65}")
+    print(f"  {'SL':<25} {'100% at -80%':<20} {'0%':<10} {'-80% - 2% fee':<15}")
+    print(f"  {'BE SL (after TP1)':<25} {'50% at +12%':<20} {'50% at +2.5%':<10} {'+7.25% - 2% fee':<15}")
+    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +2.5%':<10} {'+15.6% - 2% fee':<15}")
+    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +2.5%':<10} {'+24.8% - 2% fee':<15}")
+    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+32.5% - 2% fee':<15}")
+
+    print(f"\n  RECENT TRADES")
+    print(f"  {'-'*75}")
+    for t in trade_log[-20:]:
+        out, sym, d, st, pnl = t
+        e = "+" if pnl > 0 else "-"
+        print(f"  [{e}] {out:<22} | {sym:<12} | {d:<5} | {st:<15} | PnL: {pnl:+.2f}%")
+
+    print("\n" + "=" * 75)
+
 
 if __name__ == "__main__":
     run_backtest()
