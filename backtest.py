@@ -17,8 +17,8 @@ SYMBOLS = [
     "PEPE/USDT", "FET/USDT"
 ]
 
-LEVERAGE = 7  # ✅ تقليل الرافعة إلى 7x
-FEE_PER_SIDE = 0.7  # ✅ 0.7% per side (0.1% x 7x)
+LEVERAGE = 7
+FEE_PER_SIDE = 0.7  # 0.7% per side (0.1% x 7x)
 
 CLOSE_TP1 = 0.50
 CLOSE_TP2 = 0.25
@@ -33,9 +33,7 @@ SL_PCT = 8.0
 BE_PCT = 0.25
 
 COOLDOWN = 50
-
-# ✅ حد قوة Volume المرتفع
-VOLUME_STRENGTH_THRESHOLD = 70
+VOLUME_STRENGTH_THRESHOLD = 70  # ✅ فلتر القوة
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
     all_data = []
@@ -71,17 +69,18 @@ def run_backtest():
     timeout_pnl = 0
     total_fees = 0
 
+    # ✅ استراتيجيتان فقط
     strategy_stats = {
         "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
         "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
-        "Swing Trend":    {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
-    print(f"Strategy: 3 Strategies | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Strategies: Pullback + Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
+    print(f"Swing Trend: REMOVED")
 
     for symbol in SYMBOLS:
         try:
@@ -106,7 +105,7 @@ def run_backtest():
                 cc = df['close'].iloc[i]
                 co = df['open'].iloc[i]
 
-                # ✅ حساب قوة الإشارات
+                # ✅ استراتيجيتان فقط + فلتر Volume
                 pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
                                (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
                                (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
@@ -120,32 +119,25 @@ def run_backtest():
                 # ✅ حساب قوة Volume
                 vol_ratio = df['volume'].iloc[i] / df['vol_sma'].iloc[i] if df['vol_sma'].iloc[i] > 0 else 0
                 vol_strength = min(100, vol_ratio * 15 + 25)
-                
-                swing_buy = (df['ema_50'].iloc[i-1] <= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] > df['ema_200'].iloc[i])
-                swing_sell = (df['ema_50'].iloc[i-1] >= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] < df['ema_200'].iloc[i])
 
                 direction = None
                 strategy = None
                 
-                # ✅ ترتيب الأولوية: Pullback → Volume (بشرط) → Trend
+                # ✅ Pullback أولوية أولى
                 if pullback_buy:
                     direction = "LONG"
                     strategy = "Swing Pullback"
                 elif pullback_sell:
                     direction = "SHORT"
                     strategy = "Swing Pullback"
-                elif vol_buy and vol_strength >= VOLUME_STRENGTH_THRESHOLD:  # ✅ فلتر القوة
+                # ✅ Volume بشرط القوة
+                elif vol_buy and vol_strength >= VOLUME_STRENGTH_THRESHOLD:
                     direction = "LONG"
                     strategy = "Swing Volume"
-                elif vol_sell and vol_strength >= VOLUME_STRENGTH_THRESHOLD:  # ✅ فلتر القوة
+                elif vol_sell and vol_strength >= VOLUME_STRENGTH_THRESHOLD:
                     direction = "SHORT"
                     strategy = "Swing Volume"
-                elif swing_buy:
-                    direction = "LONG"
-                    strategy = "Swing Trend"
-                elif swing_sell:
-                    direction = "SHORT"
-                    strategy = "Swing Trend"
+                # ❌ لا يوجد Swing Trend
 
                 if not direction:
                     continue
@@ -351,10 +343,10 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - OPTIMIZED (3 Strategies + 7x + Volume Filter 70+)")
+    print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
     print("  4H Timeframe | 3 Months | 25 Coins")
     print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
-    print("  Fees: 0.7% per side (0.1% x 7x)")
+    print("  Leverage: 7x | Fees: 0.7% per side")
     print("  Volume Strength Threshold: 70+")
     print("=" * 75)
 
