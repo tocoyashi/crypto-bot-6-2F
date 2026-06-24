@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
+# Added 10 new strong coins (Total 30)
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
     "ADA/USDT", "DOGE/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
@@ -15,24 +16,6 @@ SYMBOLS = [
     "ARB/USDT", "OP/USDT", "INJ/USDT", "TIA/USDT", "FIL/USDT",
     "AAVE/USDT", "GRT/USDT", "FET/USDT", "PEPE/USDT", "FLOKI/USDT"
 ]
-
-# ✨ Updated Targets
-TP1_PCT = 1.0105  # 1.05%
-TP2_PCT = 1.025   # 2.5%
-TP3_PCT = 1.030   # 3.0%
-TP4_PCT = 1.040   # 4.0%
-SL_PCT = 0.96     # -4.0%
-BE_SL_PCT = 1.0025 # +0.25%
-
-# ✨ Position Sizing (What % of the position to close at each target)
-CLOSE_TP1 = 0.50 # 50%
-CLOSE_TP2 = 0.25 # 25%
-CLOSE_TP3 = 0.20 # 20%
-CLOSE_TP4 = 0.05 # 5%
-
-# ✨ Fees (MEXC standard is 0.1% per trade execution)
-ENTRY_FEE = -0.10
-CLOSE_FEE = -0.10
 
 def get_decimals(price):
     if price > 100: return 2
@@ -54,6 +37,7 @@ def run_backtest():
     total_profit_pct = 0
     trade_log = []
     
+    # ✨ Cooldown Tracker: Saves the last time a signal was sent for each coin
     last_signal_time = {}
 
     print(f"Fetching 3 months of data for {len(SYMBOLS)} coins...")
@@ -88,9 +72,11 @@ def run_backtest():
                 curr_time = df_15m.index[i]
                 dec = get_decimals(curr_close)
 
+                # 1. Check 1H Trend
                 trend_1h_long = (df_15m['ema_9_1h'].iloc[i] > df_15m['ema_21_1h'].iloc[i])
                 trend_1h_short = (df_15m['ema_9_1h'].iloc[i] < df_15m['ema_21_1h'].iloc[i])
 
+                # 2. Check 15m Trigger
                 trig_buy_15m = (df_15m['ema_9'].iloc[i-1] < df_15m['ema_21'].iloc[i-1]) and (df_15m['ema_9'].iloc[i] > df_15m['ema_21'].iloc[i])
                 trig_sell_15m = (df_15m['ema_9'].iloc[i-1] > df_15m['ema_21'].iloc[i-1]) and (df_15m['ema_9'].iloc[i] < df_15m['ema_21'].iloc[i])
                 macd_buy_15m = (df_15m['macd'].iloc[i-1] < 0) and (df_15m['macd'].iloc[i] > 0)
@@ -102,101 +88,92 @@ def run_backtest():
 
                 if not direction: continue
 
+                # ✨ 3. COOLDOWN CHECK (24 Hours)
                 if symbol in last_signal_time:
                     time_since_last = curr_time - last_signal_time[symbol]
                     if time_since_last < timedelta(hours=24):
-                        continue
+                        continue # Skip signal, still in cooldown period
 
-                # Calculate Exact Levels
+                # Calculate Levels
                 if direction == "LONG":
-                    tp1 = round(curr_close * TP1_PCT, dec)
-                    tp2 = round(curr_close * TP2_PCT, dec)
-                    tp3 = round(curr_close * TP3_PCT, dec)
-                    tp4 = round(curr_close * TP4_PCT, dec)
-                    sl = round(curr_close * SL_PCT, dec)
-                    be_sl = round(curr_close * BE_SL_PCT, dec)
-                    tp1_raw, tp2_raw, tp3_raw, tp4_raw, sl_raw, be_raw = 1.05, 2.5, 3.0, 4.0, -4.0, 0.25
+                    tp1, tp2, tp3, tp4 = round(curr_close * 1.0105, dec), round(curr_close * 1.025, dec), round(curr_close * 1.04, dec), round(curr_close * 1.065, dec)
+                    sl = round(curr_close * 0.96, dec)
+                    be_sl = round(curr_close * 1.0025, dec)
                 else:
-                    tp1 = round(curr_close * (2 - TP1_PCT), dec)
-                    tp2 = round(curr_close * (2 - TP2_PCT), dec)
-                    tp3 = round(curr_close * (2 - TP3_PCT), dec)
-                    tp4 = round(curr_close * (2 - TP4_PCT), dec)
-                    sl = round(curr_close * (2 - SL_PCT), dec)
-                    be_sl = round(curr_close * (2 - BE_SL_PCT), dec)
-                    tp1_raw, tp2_raw, tp3_raw, tp4_raw, sl_raw, be_raw = 1.05, 2.5, 3.0, 4.0, -4.0, 0.25
+                    tp1, tp2, tp3, tp4 = round(curr_close * 0.9895, dec), round(curr_close * 0.975, dec), round(curr_close * 0.96, dec), round(curr_close * 0.935, dec)
+                    sl = round(curr_close * 1.04, dec)
+                    be_sl = round(curr_close * 0.9975, dec)
 
+                # ✨ 4. REGISTER SIGNAL (Update Cooldown Timer)
                 last_signal_time[symbol] = curr_time
 
                 future_candles = df_15m.iloc[i+1 : i+97]
                 if len(future_candles) < 10: continue
 
-                state = 0 
+                state = 0
                 outcome = ""
-                final_pnl = ENTRY_FEE # Start with entry fee (-0.10%)
+                final_pnl = 0.0
 
                 for index, row in future_candles.iterrows():
                     if direction == "LONG":
                         if state == 0:
                             if row['high'] >= tp1:
-                                # TP1 Hit: Calculate 50% close profit minus fee
-                                final_pnl += (CLOSE_TP1 * tp1_raw) + (CLOSE_TP1 * CLOSE_FEE)
                                 state = 1
+                                final_pnl += 1.05
                                 continue
                             if row['low'] <= sl:
                                 outcome = "SL Hit (Before TP1)"
-                                final_pnl += sl_raw + CLOSE_FEE # Full loss + close fee
+                                final_pnl -= 4.0
                                 break
                         elif state == 1:
                             if row['high'] >= tp2:
                                 outcome = "TP2 Hit"
-                                final_pnl += (CLOSE_TP2 * tp2_raw) + (CLOSE_TP2 * CLOSE_FEE)
+                                final_pnl += 1.45
                                 break
                             if row['high'] >= tp3:
                                 outcome = "TP3 Hit"
-                                final_pnl += (CLOSE_TP3 * tp3_raw) + (CLOSE_TP3 * CLOSE_FEE)
+                                final_pnl += 3.0
                                 break
                             if row['high'] >= tp4:
                                 outcome = "TP4 Hit"
-                                final_pnl += (CLOSE_TP4 * tp4_raw) + (CLOSE_TP4 * CLOSE_FEE)
+                                final_pnl += 5.45
                                 break
                             if row['low'] <= be_sl:
                                 outcome = "BE SL Hit"
-                                remaining_pos = 1.0 - CLOSE_TP1
-                                final_pnl += (remaining_pos * be_raw) + (remaining_pos * CLOSE_FEE)
+                                final_pnl -= 0.25
                                 break
                                 
                     elif direction == "SHORT":
                         if state == 0:
                             if row['low'] <= tp1:
-                                final_pnl += (CLOSE_TP1 * tp1_raw) + (CLOSE_TP1 * CLOSE_FEE)
                                 state = 1
+                                final_pnl += 1.05
                                 continue
                             if row['high'] >= sl:
                                 outcome = "SL Hit (Before TP1)"
-                                final_pnl += sl_raw + CLOSE_FEE
+                                final_pnl -= 4.0
                                 break
                         elif state == 1:
                             if row['low'] <= tp2:
                                 outcome = "TP2 Hit"
-                                final_pnl += (CLOSE_TP2 * tp2_raw) + (CLOSE_TP2 * CLOSE_FEE)
+                                final_pnl += 1.45
                                 break
                             if row['low'] <= tp3:
                                 outcome = "TP3 Hit"
-                                final_pnl += (CLOSE_TP3 * tp3_raw) + (CLOSE_TP3 * CLOSE_FEE)
+                                final_pnl += 3.0
                                 break
                             if row['low'] <= tp4:
                                 outcome = "TP4 Hit"
-                                final_pnl += (CLOSE_TP4 * tp4_raw) + (CLOSE_TP4 * CLOSE_FEE)
+                                final_pnl += 5.45
                                 break
                             if row['high'] >= be_sl:
                                 outcome = "BE SL Hit"
-                                remaining_pos = 1.0 - CLOSE_TP1
-                                final_pnl += (remaining_pos * be_raw) + (remaining_pos * CLOSE_FEE)
+                                final_pnl -= 0.25
                                 break
 
                 if outcome == "": 
                     outcome = "TIMEOUT"
-                    final_pnl += -0.5 if state == 0 else 0.0 # Scratch if before TP1, 0 if after TP1
+                    final_pnl -= 0.5 if state == 0 else 0.0
 
                 total_trades += 1
                 total_profit_pct += final_pnl
@@ -209,25 +186,25 @@ def run_backtest():
                 if "BE SL Hit" in outcome: be_sl_hits += 1
 
                 log_emoji = "🟢" if final_pnl > 0 else "🔴"
-                trade_log.append(f"{log_emoji} {outcome:20s} | {symbol:10s} | {direction:5s} | Net PnL: {final_pnl:+.2f}%")
+                trade_log.append(f"{log_emoji} {outcome:20s} | {symbol:10s} | {direction:5s} | PnL: {final_pnl:+.2f}%")
 
         except Exception as e:
             pass 
 
     print("\n" + "="*60)
-    print("📊 BACKTEST REPORT (PARTIAL CLOSES & FEES INCLUDED)")
+    print("📊 ADVANCED BACKTEST REPORT (LAST 3 MONTHS - WITH 24H COOLDOWN)")
     print("="*60)
     print(f"Total Clean Signals: {total_trades}")
     print("-" * 60)
-    print(f"✅ Hit TP1 (Close 50%): {tp1_hits} ({(tp1_hits/total_trades)*100:.1f}%)")
-    print(f"📈 Hit TP2 (Close 25%): {tp2_hits}")
-    print(f"🚀 Hit TP3 (Close 20%): {tp3_hits}")
-    print(f"🏆 Hit TP4 (Close 5%):  {tp4_hits}")
+    print(f"✅ Hit TP1 (Moved to BE): {tp1_hits} ({(tp1_hits/total_trades)*100:.1f}%)")
+    print(f"📈 Hit TP2: {tp2_hits}")
+    print(f"🚀 Hit TP3: {tp3_hits}")
+    print(f"🏆 Hit TP4 (Full Target): {tp4_hits}")
     print("-" * 60)
     print(f"❌ Real Losses (SL before TP1): {real_losses}")
     print(f"🛑 BE Stop Losses (After TP1): {be_sl_hits}")
     print("="*60)
-    print(f"Net Profit AFTER FEES: {total_profit_pct:.2f}%")
+    print(f"Net Profit (Simulated): {total_profit_pct:.2f}%")
     print("="*60)
     print("Recent Trade Log:")
     for log in trade_log[-15:]:
