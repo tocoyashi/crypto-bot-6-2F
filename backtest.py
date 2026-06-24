@@ -6,7 +6,7 @@ import pandas as pd
 import ta
 from datetime import datetime, timedelta, timezone
 
-TIMEFRAME = "4h"
+TIMEFRAME = "15m"
 
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
@@ -20,19 +20,19 @@ SYMBOLS = [
 LEVERAGE = 7
 FEE_PER_SIDE = 0.7  # 0.7% per side (0.1% x 7x)
 
-CLOSE_TP1 = 0.50
-CLOSE_TP2 = 0.25
-CLOSE_TP3 = 0.15
+CLOSE_TP1 = 0.40
+CLOSE_TP2 = 0.30
+CLOSE_TP3 = 0.20
 CLOSE_TP4 = 0.10
 
-TP1_PCT = 1.2
-TP2_PCT = 3.0
-TP3_PCT = 6.0
-TP4_PCT = 12.0
-SL_PCT = 8.0
-BE_PCT = 0.25
+TP1_PCT = 0.5
+TP2_PCT = 1.0
+TP3_PCT = 2.0
+TP4_PCT = 4.0
+SL_PCT = 1.0
+BE_PCT = 0.1
 
-COOLDOWN = 50
+COOLDOWN = 20
 VOLUME_STRENGTH_THRESHOLD = 70
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
@@ -70,14 +70,13 @@ def run_backtest():
     total_fees = 0
 
     strategy_stats = {
-        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
         "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
-    print(f"Strategies: Pullback + Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Strategy: Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
     print(f"Swing Trend: REMOVED")
 
@@ -337,9 +336,9 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
-    print("  4H Timeframe | 3 Months | 25 Coins")
-    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
+    print("  SWING BOT BACKTEST - VOLUME ONLY (SCALPING)")
+    print("  15m Timeframe | 3 Months | 25 Coins")
+    print("  TP1=0.5% TP2=1% TP3=2% TP4=4% | SL=1% | BE=+/-0.1% after TP1")
     print("  Leverage: 7x | Fees: 0.7% per side")
     print("  Volume Strength Threshold: 70+")
     print("=" * 75)
