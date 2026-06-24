@@ -20,18 +20,16 @@ SYMBOLS = [
 LEVERAGE = 7
 FEE_PER_SIDE = 0.7  # 0.7% per side (0.1% x 7x)
 
-# ✅ إغلاق جزئي جديد: 50% / 35% / 15%
 CLOSE_TP1 = 0.50
-CLOSE_TP2 = 0.35
+CLOSE_TP2 = 0.25
 CLOSE_TP3 = 0.15
-# ❌ لا يوجد TP4
+CLOSE_TP4 = 0.10
 
 TP1_PCT = 1.2
 TP2_PCT = 3.0
 TP3_PCT = 6.0
-# ❌ لا يوجد TP4_PCT
-
-SL_PCT = 6.0  # ✅ تقليل SL إلى 6%
+TP4_PCT = 12.0
+SL_PCT = 8.0
 BE_PCT = 0.25
 
 COOLDOWN = 50
@@ -59,13 +57,15 @@ def run_backtest():
     sl_count = 0
     be_after_tp1 = 0
     be_after_tp2 = 0
-    tp3_full = 0  # ✅ إغلاق كامل عند TP3
+    be_after_tp3 = 0
+    tp4_full = 0
     timeouts = 0
 
     sl_pnl = 0
     be_tp1_pnl = 0
     be_tp2_pnl = 0
-    tp3_pnl = 0  # ✅ بدلاً من tp4
+    be_tp3_pnl = 0
+    tp4_pnl = 0
     timeout_pnl = 0
     total_fees = 0
 
@@ -79,8 +79,7 @@ def run_backtest():
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
     print(f"Strategies: Pullback + Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
-    print(f"Targets: 3 (TP1=1.2% TP2=3% TP3=6%) | Close: 50%/35%/15%")
-    print(f"BE: +0.25% after TP1 | TP1 price after TP2 | Full close at TP3")
+    print(f"Swing Trend: REMOVED")
 
     for symbol in SYMBOLS:
         try:
@@ -146,16 +145,16 @@ def run_backtest():
                     tp1_l = entry * (1 + TP1_PCT/100)
                     tp2_l = entry * (1 + TP2_PCT/100)
                     tp3_l = entry * (1 + TP3_PCT/100)
+                    tp4_l = entry * (1 + TP4_PCT/100)
                     sl_l  = entry * (1 - SL_PCT/100)
-                    be1_l = entry * (1 + BE_PCT/100)  # ✅ BE بعد TP1: +0.25%
-                    be2_l = tp1_l  # ✅ BE بعد TP2: سعر TP1
+                    be_l  = entry * (1 + BE_PCT/100)
                 else:
                     tp1_l = entry * (1 - TP1_PCT/100)
                     tp2_l = entry * (1 - TP2_PCT/100)
                     tp3_l = entry * (1 - TP3_PCT/100)
+                    tp4_l = entry * (1 - TP4_PCT/100)
                     sl_l  = entry * (1 + SL_PCT/100)
-                    be1_l = entry * (1 - BE_PCT/100)  # ✅ BE بعد TP1: -0.25%
-                    be2_l = tp1_l  # ✅ BE بعد TP2: سعر TP1
+                    be_l  = entry * (1 - BE_PCT/100)
 
                 future = df.iloc[i+1:i+201]
                 if len(future) < 10:
@@ -170,7 +169,6 @@ def run_backtest():
 
                 for idx, row in future.iterrows():
                     if direction == "LONG":
-                        # ✅ State 0: قبل أي هدف
                         if state == 0:
                             if row['low'] <= sl_l:
                                 pnl += remaining * (-SL_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
@@ -184,10 +182,8 @@ def run_backtest():
                                 hit_tp = 1
                                 state = 1
                                 continue
-                        
-                        # ✅ State 1: بعد TP1, BE = +0.25%
                         if state == 1:
-                            if row['low'] <= be1_l:
+                            if row['low'] <= be_l:
                                 pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
                                 fees_paid += remaining * FEE_PER_SIDE
                                 outcome = "BE SL (after TP1)"
@@ -199,25 +195,33 @@ def run_backtest():
                                 hit_tp = 2
                                 state = 2
                                 continue
-                        
-                        # ✅ State 2: بعد TP2, BE = سعر TP1
                         if state == 2:
-                            if row['low'] <= be2_l:
-                                pnl += remaining * ((be2_l/entry - 1) * 100 * LEVERAGE) - remaining * FEE_PER_SIDE
+                            if row['low'] <= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
                                 fees_paid += remaining * FEE_PER_SIDE
-                                outcome = "BE SL (after TP2 at TP1)"
+                                outcome = "BE SL (after TP2)"
                                 break
                             if row['high'] >= tp3_l:
-                                # ✅ إغلاق كامل عند TP3
-                                pnl += remaining * (TP3_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
-                                fees_paid += remaining * FEE_PER_SIDE
-                                remaining = 0
+                                pnl += CLOSE_TP3 * (TP3_PCT * LEVERAGE) - CLOSE_TP3 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP3 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP3
                                 hit_tp = 3
-                                outcome = "TP3 (Full Close)"
+                                state = 3
+                                continue
+                        if state == 3:
+                            if row['low'] <= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP3)"
                                 break
-                                
-                    else:  # SHORT
-                        # ✅ State 0: قبل أي هدف
+                            if row['high'] >= tp4_l:
+                                pnl += remaining * (TP4_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                remaining -= CLOSE_TP4
+                                hit_tp = 4
+                                outcome = "TP4 (All Targets)"
+                                break
+                    else:
                         if state == 0:
                             if row['high'] >= sl_l:
                                 pnl += remaining * (-SL_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
@@ -231,10 +235,8 @@ def run_backtest():
                                 hit_tp = 1
                                 state = 1
                                 continue
-                        
-                        # ✅ State 1: بعد TP1, BE = -0.25%
                         if state == 1:
-                            if row['high'] >= be1_l:
+                            if row['high'] >= be_l:
                                 pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
                                 fees_paid += remaining * FEE_PER_SIDE
                                 outcome = "BE SL (after TP1)"
@@ -246,21 +248,31 @@ def run_backtest():
                                 hit_tp = 2
                                 state = 2
                                 continue
-                        
-                        # ✅ State 2: بعد TP2, BE = سعر TP1
                         if state == 2:
-                            if row['high'] >= be2_l:
-                                pnl += remaining * ((entry/be2_l - 1) * 100 * LEVERAGE) - remaining * FEE_PER_SIDE
+                            if row['high'] >= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
                                 fees_paid += remaining * FEE_PER_SIDE
-                                outcome = "BE SL (after TP2 at TP1)"
+                                outcome = "BE SL (after TP2)"
                                 break
                             if row['low'] <= tp3_l:
-                                # ✅ إغلاق كامل عند TP3
-                                pnl += remaining * (TP3_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
-                                fees_paid += remaining * FEE_PER_SIDE
-                                remaining = 0
+                                pnl += CLOSE_TP3 * (TP3_PCT * LEVERAGE) - CLOSE_TP3 * FEE_PER_SIDE
+                                fees_paid += CLOSE_TP3 * FEE_PER_SIDE
+                                remaining -= CLOSE_TP3
                                 hit_tp = 3
-                                outcome = "TP3 (Full Close)"
+                                state = 3
+                                continue
+                        if state == 3:
+                            if row['high'] >= be_l:
+                                pnl += remaining * (BE_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                outcome = "BE SL (after TP3)"
+                                break
+                            if row['low'] <= tp4_l:
+                                pnl += remaining * (TP4_PCT * LEVERAGE) - remaining * FEE_PER_SIDE
+                                fees_paid += remaining * FEE_PER_SIDE
+                                remaining -= CLOSE_TP4
+                                hit_tp = 4
+                                outcome = "TP4 (All Targets)"
                                 break
 
                 if outcome == "":
@@ -296,14 +308,19 @@ def run_backtest():
                     be_tp1_pnl += pnl
                     strategy_stats[strategy]["wins"] += 1
                     strategy_stats[strategy]["pnl"] += pnl
-                elif outcome.startswith("BE SL (after TP2"):
+                elif outcome.startswith("BE SL (after TP2)"):
                     be_after_tp2 += 1
                     be_tp2_pnl += pnl
                     strategy_stats[strategy]["wins"] += 1
                     strategy_stats[strategy]["pnl"] += pnl
-                elif outcome == "TP3 (Full Close)":
-                    tp3_full += 1
-                    tp3_pnl += pnl
+                elif outcome.startswith("BE SL (after TP3)"):
+                    be_after_tp3 += 1
+                    be_tp3_pnl += pnl
+                    strategy_stats[strategy]["wins"] += 1
+                    strategy_stats[strategy]["pnl"] += pnl
+                elif outcome == "TP4 (All Targets)":
+                    tp4_full += 1
+                    tp4_pnl += pnl
                     strategy_stats[strategy]["wins"] += 1
                     strategy_stats[strategy]["pnl"] += pnl
                 elif outcome.startswith("TIMEOUT"):
@@ -315,16 +332,16 @@ def run_backtest():
         except Exception:
             pass
 
-    net_total = sl_pnl + be_tp1_pnl + be_tp2_pnl + tp3_pnl + timeout_pnl
-    wins = be_after_tp1 + be_after_tp2 + tp3_full
+    net_total = sl_pnl + be_tp1_pnl + be_tp2_pnl + be_tp3_pnl + tp4_pnl + timeout_pnl
+    wins = be_after_tp1 + be_after_tp2 + be_after_tp3 + tp4_full
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - 3 TARGETS + DYNAMIC BE")
+    print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
     print("  4H Timeframe | 3 Months | 25 Coins")
-    print("  TP1=1.2%(50%) TP2=3%(35%) TP3=6%(15%) | SL=6%")
-    print("  BE: +0.25% after TP1 | TP1 price after TP2 | Full close at TP3")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
     print("  Leverage: 7x | Fees: 0.7% per side")
+    print("  Volume Strength Threshold: 70+")
     print("=" * 75)
 
     print(f"\n  OVERVIEW")
@@ -333,22 +350,23 @@ def run_backtest():
     print(f"  {'SL Rate (SL before TP1):':<35} {sl_count}/{total} = {sl_count/total*100:.1f}%" if total else "")
 
     print(f"\n  OUTCOMES")
-    print(f"  {'Outcome':<30} {'Count':<10} {'Rate':<10} {'Avg PnL':<12} {'Total PnL':<15}")
-    print(f"  {'-'*77}")
+    print(f"  {'Outcome':<25} {'Count':<10} {'Rate':<10} {'Avg PnL':<12} {'Total PnL':<15}")
+    print(f"  {'-'*72}")
 
     def safe_rate(c):
         return f"{c/total*100:.1f}%" if total > 0 else "-"
 
     rows = [
-        ("SL (before TP1)",           sl_count,       sl_pnl),
-        ("BE SL (after TP1)",        be_after_tp1,   be_tp1_pnl),
-        ("BE SL (after TP2 at TP1)", be_after_tp2,   be_tp2_pnl),
-        ("TP3 (Full Close)",         tp3_full,       tp3_pnl),
-        ("Timeout",                  timeouts,        timeout_pnl),
+        ("SL (before TP1)",        sl_count,       sl_pnl),
+        ("BE SL (after TP1)",     be_after_tp1,   be_tp1_pnl),
+        ("BE SL (after TP2)",     be_after_tp2,   be_tp2_pnl),
+        ("BE SL (after TP3)",     be_after_tp3,   be_tp3_pnl),
+        ("TP4 (All Targets)",     tp4_full,       tp4_pnl),
+        ("Timeout",               timeouts,        timeout_pnl),
     ]
     for label, cnt, accum in rows:
         avg = accum / cnt if cnt > 0 else 0
-        print(f"  {label:<30} {cnt:<10} {safe_rate(cnt):<10} {avg:>+11.2f}%   {accum:>+14.2f}%")
+        print(f"  {label:<25} {cnt:<10} {safe_rate(cnt):<10} {avg:>+11.2f}%   {accum:>+14.2f}%")
 
     print(f"\n  FINANCIAL SUMMARY")
     print(f"  {'-'*50}")
@@ -358,7 +376,7 @@ def run_backtest():
     if total > 0:
         print(f"  {'Avg PnL per Signal:':<35} {net_total/total:>+10.2f}%")
     if wins > 0 and losses > 0:
-        avg_win = (be_tp1_pnl + be_tp2_pnl + tp3_pnl) / wins
+        avg_win = (be_tp1_pnl + be_tp2_pnl + be_tp3_pnl + tp4_pnl) / wins
         avg_loss = (sl_pnl + timeout_pnl) / losses
         print(f"  {'Avg Winning Trade:':<35} {avg_win:>+10.2f}%")
         print(f"  {'Avg Losing Trade:':<35} {avg_loss:>+10.2f}%")
@@ -378,19 +396,20 @@ def run_backtest():
 
     print(f"\n  POSITION BREAKDOWN PER OUTCOME")
     print(f"  {'-'*65}")
-    print(f"  {'Outcome':<30} {'Closed At':<20} {'Remaining':<10} {'Net Effect':<15}")
+    print(f"  {'Outcome':<25} {'Closed At':<20} {'Remaining':<10} {'Net Effect':<15}")
     print(f"  {'-'*65}")
-    print(f"  {'SL':<30} {'100% at -42%':<20} {'0%':<10} {'-42% - 1.4% fee':<15}")
-    print(f"  {'BE SL (after TP1)':<30} {'50% at +8.4%':<20} {'50% at +1.75%':<10} {'+5.1% - 1.4% fee':<15}")
-    print(f"  {'BE SL (after TP2 at TP1)':<30} {'50%+35% at TP1/2':<20} {'15% at +8.4%':<10} {'+11.8% - 1.4% fee':<15}")
-    print(f"  {'TP3 (Full Close)':<30} {'50%+35%+15% at TP3':<20} {'0%':<10} {'+14.7% - 1.4% fee':<15}")
+    print(f"  {'SL':<25} {'100% at -56%':<20} {'0%':<10} {'-56% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP1)':<25} {'50% at +8.4%':<20} {'50% at +1.75%':<10} {'+5.1% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +1.75%':<10} {'+10.9% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +1.75%':<10} {'+17.4% - 1.4% fee':<15}")
+    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+22.75% - 1.4% fee':<15}")
 
     print(f"\n  RECENT TRADES")
     print(f"  {'-'*75}")
     for t in trade_log[-20:]:
         out, sym, d, st, pnl = t
         e = "+" if pnl > 0 else "-"
-        print(f"  [{e}] {out:<28} | {sym:<12} | {d:<5} | {st:<15} | PnL: {pnl:+.2f}%")
+        print(f"  [{e}] {out:<22} | {sym:<12} | {d:<5} | {st:<15} | PnL: {pnl:+.2f}%")
 
     print("\n" + "=" * 75)
 
