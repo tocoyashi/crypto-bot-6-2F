@@ -17,8 +17,8 @@ SYMBOLS = [
     "PEPE/USDT", "FET/USDT"
 ]
 
-LEVERAGE = 5  # ✅ تقليل الرافعة إلى 5x
-FEE_PER_SIDE = 0.5  # ✅ 0.5% per side (0.1% x 5x)
+LEVERAGE = 7  # ✅ تقليل الرافعة إلى 7x
+FEE_PER_SIDE = 0.7  # ✅ 0.7% per side (0.1% x 7x)
 
 CLOSE_TP1 = 0.50
 CLOSE_TP2 = 0.25
@@ -29,10 +29,13 @@ TP1_PCT = 1.2
 TP2_PCT = 3.0
 TP3_PCT = 6.0
 TP4_PCT = 12.0
-SL_PCT = 5.0  # ✅ وقف الخسارة 5%
+SL_PCT = 8.0
 BE_PCT = 0.25
 
 COOLDOWN = 50
+
+# ✅ حد قوة Volume المرتفع
+VOLUME_STRENGTH_THRESHOLD = 70
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
     all_data = []
@@ -68,15 +71,17 @@ def run_backtest():
     timeout_pnl = 0
     total_fees = 0
 
-    # ✅ استراتيجية واحدة فقط: Swing Volume
     strategy_stats = {
-        "Swing Volume": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
+        "Swing Trend":    {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
     print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
-    print(f"Strategy: Swing Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Strategy: 3 Strategies | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
 
     for symbol in SYMBOLS:
         try:
@@ -101,18 +106,46 @@ def run_backtest():
                 cc = df['close'].iloc[i]
                 co = df['open'].iloc[i]
 
-                # ✅ Swing Volume فقط (حذف Pullback و Trend)
+                # ✅ حساب قوة الإشارات
+                pullback_buy = (df['ema_50'].iloc[i] > df['ema_200'].iloc[i]) and \
+                               (df['low'].iloc[i] <= df['ema_21'].iloc[i]) and \
+                               (cc > df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] < 60)
+                pullback_sell = (df['ema_50'].iloc[i] < df['ema_200'].iloc[i]) and \
+                                (df['high'].iloc[i] >= df['ema_21'].iloc[i]) and \
+                                (cc < df['ema_21'].iloc[i]) and (df['rsi'].iloc[i] > 40)
+                
                 vol_buy = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc > co)
                 vol_sell = (df['volume'].iloc[i] > df['vol_sma'].iloc[i] * 2.5) and (cc < co)
+                
+                # ✅ حساب قوة Volume
+                vol_ratio = df['volume'].iloc[i] / df['vol_sma'].iloc[i] if df['vol_sma'].iloc[i] > 0 else 0
+                vol_strength = min(100, vol_ratio * 15 + 25)
+                
+                swing_buy = (df['ema_50'].iloc[i-1] <= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] > df['ema_200'].iloc[i])
+                swing_sell = (df['ema_50'].iloc[i-1] >= df['ema_200'].iloc[i-1]) and (df['ema_50'].iloc[i] < df['ema_200'].iloc[i])
 
                 direction = None
                 strategy = None
-                if vol_buy:
+                
+                # ✅ ترتيب الأولوية: Pullback → Volume (بشرط) → Trend
+                if pullback_buy:
+                    direction = "LONG"
+                    strategy = "Swing Pullback"
+                elif pullback_sell:
+                    direction = "SHORT"
+                    strategy = "Swing Pullback"
+                elif vol_buy and vol_strength >= VOLUME_STRENGTH_THRESHOLD:  # ✅ فلتر القوة
                     direction = "LONG"
                     strategy = "Swing Volume"
-                elif vol_sell:
+                elif vol_sell and vol_strength >= VOLUME_STRENGTH_THRESHOLD:  # ✅ فلتر القوة
                     direction = "SHORT"
                     strategy = "Swing Volume"
+                elif swing_buy:
+                    direction = "LONG"
+                    strategy = "Swing Trend"
+                elif swing_sell:
+                    direction = "SHORT"
+                    strategy = "Swing Trend"
 
                 if not direction:
                     continue
@@ -318,10 +351,11 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - SWING VOLUME ONLY + 5x LEVERAGE")
+    print("  SWING BOT BACKTEST - OPTIMIZED (3 Strategies + 7x + Volume Filter 70+)")
     print("  4H Timeframe | 3 Months | 25 Coins")
-    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=5% | BE=+/-0.25% after TP1")
-    print("  Fees: 0.5% per side (0.1% x 5x)")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
+    print("  Fees: 0.7% per side (0.1% x 7x)")
+    print("  Volume Strength Threshold: 70+")
     print("=" * 75)
 
     print(f"\n  OVERVIEW")
@@ -378,11 +412,11 @@ def run_backtest():
     print(f"  {'-'*65}")
     print(f"  {'Outcome':<25} {'Closed At':<20} {'Remaining':<10} {'Net Effect':<15}")
     print(f"  {'-'*65}")
-    print(f"  {'SL':<25} {'100% at -25%':<20} {'0%':<10} {'-25% - 1% fee':<15}")
-    print(f"  {'BE SL (after TP1)':<25} {'50% at +6%':<20} {'50% at +1.25%':<10} {'+3.6% - 1% fee':<15}")
-    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +1.25%':<10} {'+7.8% - 1% fee':<15}")
-    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +1.25%':<10} {'+12.4% - 1% fee':<15}")
-    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+16.25% - 1% fee':<15}")
+    print(f"  {'SL':<25} {'100% at -56%':<20} {'0%':<10} {'-56% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP1)':<25} {'50% at +8.4%':<20} {'50% at +1.75%':<10} {'+5.1% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP2)':<25} {'50%+25% at TP1/2':<20} {'25% at +1.75%':<10} {'+10.9% - 1.4% fee':<15}")
+    print(f"  {'BE SL (after TP3)':<25} {'50%+25%+15%':<20} {'10% at +1.75%':<10} {'+17.4% - 1.4% fee':<15}")
+    print(f"  {'TP4 (All Targets)':<25} {'50%+25%+15%+10%':<20} {'0%':<10} {'+22.75% - 1.4% fee':<15}")
 
     print(f"\n  RECENT TRADES")
     print(f"  {'-'*75}")
