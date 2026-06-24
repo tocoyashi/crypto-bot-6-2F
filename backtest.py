@@ -6,7 +6,7 @@ import pandas as pd
 import ta
 from datetime import datetime, timedelta, timezone
 
-TIMEFRAME = "4h"
+TIMEFRAME = "2h"
 
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
@@ -32,7 +32,7 @@ TP1_PCT = 1.2
 TP2_PCT = 3.0
 TP3_PCT = 6.0
 TP4_PCT = 12.0
-SL_PCT = 8.0
+SL_PCT = 6.0
 BE_PCT = 0.25
 
 COOLDOWN = 50
@@ -73,14 +73,13 @@ def run_backtest():
     total_fees = 0
 
     strategy_stats = {
-        "Swing Pullback": {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
         "Swing Volume":   {"signals": 0, "wins": 0, "sl": 0, "pnl": 0},
     }
 
     trade_log = []
 
-    print(f"Fetching 3 months of 4H data for {len(SYMBOLS)} coins...")
-    print(f"Strategies: Pullback + Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Fetching 3 months of 2H data for {len(SYMBOLS)} coins...")
+    print(f"Strategy: Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
     print(f"Swing Trend: REMOVED")
 
@@ -340,9 +339,9 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
-    print("  4H Timeframe | 3 Months | 25 Coins")
-    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=8% | BE=+/-0.25% after TP1")
+    print("  SWING BOT BACKTEST - VOLUME ONLY")
+    print("  2H Timeframe | 3 Months | 35 Coins")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=6% | BE=+/-0.25% after TP1")
     print("  Leverage: 7x | Fees: 0.7% per side")
     print("  Volume Strength Threshold: 70+")
     print("=" * 75)
