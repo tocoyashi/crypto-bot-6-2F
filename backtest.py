@@ -17,8 +17,8 @@ SYMBOLS = [
     "PEPE/USDT", "FET/USDT"
 ]
 
-LEVERAGE = 7
-FEE_PER_SIDE = 0.7  # 0.7% per side (0.1% x 7x)
+LEVERAGE = 3
+FEE_PER_SIDE = 0.3  # 0.3% per side (0.1% x 3x)
 
 CLOSE_TP1 = 0.40
 CLOSE_TP2 = 0.30
@@ -26,14 +26,14 @@ CLOSE_TP3 = 0.20
 CLOSE_TP4 = 0.10
 
 TP1_PCT = 0.8
-TP2_PCT = 2.0
-TP3_PCT = 4.0
-TP4_PCT = 8.0
-SL_PCT = 4.0
-BE_PCT = 0.2
+TP2_PCT = 1.5
+TP3_PCT = 3.0
+TP4_PCT = 5.0
+SL_PCT = 2.0
+BE_PCT = 0.15
 
-COOLDOWN = 0
-VOLUME_STRENGTH_THRESHOLD = 70
+COOLDOWN = 25
+VOLUME_STRENGTH_THRESHOLD = 80
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
     all_data = []
@@ -340,8 +340,8 @@ def run_backtest():
 
     print("\n" + "=" * 75)
     print("  SWING BOT BACKTEST - PULLBACK + VOLUME ONLY (NO TREND)")
-    print("  1H Timeframe | 3 Months | 25 Coins | No Cooldown")
-    print("  TP1=0.8% TP2=2% TP3=4% TP4=8% | SL=4% | BE=+/-0.2% after TP1 | EMA Trend Filter")
+    print("  1H Timeframe | 3 Months | 25 Coins | Cooldown: 25")
+    print("  TP1=0.8% TP2=1.5% TP3=3% TP4=5% | SL=2% | BE=+/-0.15% | EMA Trend | Vol 80+")
     print("  Leverage: 7x | Fees: 0.7% per side")
     print("  Volume Strength Threshold: 70+")
     print("=" * 75)
