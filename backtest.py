@@ -36,7 +36,7 @@ SL_PCT = 6.0
 BE_PCT = 0.25
 
 COOLDOWN = 50
-VOLUME_STRENGTH_THRESHOLD = 70
+VOLUME_STRENGTH_THRESHOLD = 50
 
 def fetch_all_ohlcv(exchange, symbol, timeframe, since):
     all_data = []
@@ -79,7 +79,7 @@ def run_backtest():
     trade_log = []
 
     print(f"Fetching 3 months of 2H data for {len(SYMBOLS)} coins...")
-    print(f"Strategy: Volume ONLY | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
+    print(f"Strategy: Volume ONLY (Relaxed) | Leverage: {LEVERAGE}x | SL: {SL_PCT}%")
     print(f"Volume Strength Threshold: {VOLUME_STRENGTH_THRESHOLD}+")
     print(f"Swing Trend: REMOVED")
 
@@ -339,11 +339,11 @@ def run_backtest():
     losses = sl_count + timeouts
 
     print("\n" + "=" * 75)
-    print("  SWING BOT BACKTEST - VOLUME ONLY")
+    print("  SWING BOT BACKTEST - VOLUME ONLY (RELAXED)")
     print("  2H Timeframe | 3 Months | 35 Coins")
-    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=6% | BE=+/-0.25% after TP1")
+    print("  TP1=1.2% TP2=3% TP3=6% TP4=12% | SL=6% | BE=+/-0.25% | Vol 1.5x | Str 50+")
     print("  Leverage: 7x | Fees: 0.7% per side")
-    print("  Volume Strength Threshold: 70+")
+    print("  Volume Strength Threshold: 50+")
     print("=" * 75)
 
     print(f"\n  OVERVIEW")
