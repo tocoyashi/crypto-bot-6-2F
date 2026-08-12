@@ -13,8 +13,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
-    "ADA/USDT", "DOGE/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
+    "WLD/USDT", "ALGO/USDT", "RENDER/USDT", "SOL/USDT", "DASH/USDT",
+    "INJ/USDT", "FET/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
     "DOT/USDT", "POL/USDT", "SHIB/USDT", "LTC/USDT", "UNI/USDT",
     "ATOM/USDT", "XLM/USDT", "NEAR/USDT", "APT/USDT", "SUI/USDT"
 ]
@@ -64,7 +64,7 @@ def send_crypto_signal(coin_name, direction, strategy, entry, tp1, tp2, tp3, tp4
     clean_name = coin_name.replace("/", "")
     zone_low = round(entry * 0.999, get_decimals(entry))
     zone_high = round(entry * 1.001, get_decimals(entry))
-    text = f"📌 SIGNAL ID: #{signal_id}\nCOIN: #{clean_name} ({LEVERAGE})\nDirection: {direction_text} | Type: {strategy}\n➖➖➖➖➖➖➖\nENTRY: {zone_low} - {zone_high}\nTARGETS: {tp1} - {tp2} - {tp3} - {tp4}\nSTOP LOSS: {sl}\n\n📊 {summary_text}\n➖➖➖➖➖➖➖\nCrypto Bullets: By Banana Bot®"
+    text = f"📌 SIGNAL ID: #{signal_id}\nCOIN: #{clean_name} ({LEVERAGE})\nDirection: {direction_text} | Type: {strategy}\n➖➖➖➖➖➖➖\nENTRY: {zone_low} - {zone_high}\nTARGETS: {tp1} - {tp2} - {tp3} - {tp4}\nSTOP LOSS: {sl}\n\n📊 {summary_text}\n➖➖➖➖➖➖➖\nL E A K E D  B Y:  BULLS SIGNALS"
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHANNEL_ID, "text": text, "disable_web_page_preview": True}
     try:
@@ -114,23 +114,23 @@ def analyze_and_trade():
 
             if (ema_buy_15m and ema_buy_60m):
                 print(f"🟢 DUAL EMA BUY on {symbol}!")
-                summary = generate_summary("LONG", "Dual-TF EMA Cross", df_15m)
-                send_crypto_signal(symbol, "LONG", "Dual-TF EMA Cross", entry, *long_tps, long_sl, summary)
+                summary = generate_summary("LONG", "Dual-TF", df_15m)
+                send_crypto_signal(symbol, "LONG", "Dual-TF", entry, *long_tps, long_sl, summary)
                 time.sleep(6)
             elif (ema_sell_15m and ema_sell_60m):
                 print(f"🔴 DUAL EMA SELL on {symbol}!")
-                summary = generate_summary("SHORT", "Dual-TF EMA Cross", df_15m)
-                send_crypto_signal(symbol, "SHORT", "Dual-TF EMA Cross", entry, *short_tps, short_sl, summary)
+                summary = generate_summary("SHORT", "Dual-TF", df_15m)
+                send_crypto_signal(symbol, "SHORT", "Dual-TF", entry, *short_tps, short_sl, summary)
                 time.sleep(6)
             elif (macd_buy_15m and macd_buy_60m):
                 print(f"🟢 DUAL MACD BUY on {symbol}!")
-                summary = generate_summary("LONG", "Dual-TF MACD Cross", df_15m)
-                send_crypto_signal(symbol, "LONG", "Dual-TF MACD Cross", entry, *long_tps, long_sl, summary)
+                summary = generate_summary("LONG", "Dual-TF", df_15m)
+                send_crypto_signal(symbol, "LONG", "Dual-TF", entry, *long_tps, long_sl, summary)
                 time.sleep(6)
             elif (macd_sell_15m and macd_sell_60m):
                 print(f"🔴 DUAL MACD SELL on {symbol}!")
-                summary = generate_summary("SHORT", "Dual-TF MACD Cross", df_15m)
-                send_crypto_signal(symbol, "SHORT", "Dual-TF MACD Cross", entry, *short_tps, short_sl, summary)
+                summary = generate_summary("SHORT", "Dual-TF", df_15m)
+                send_crypto_signal(symbol, "SHORT", "Dual-TF", entry, *short_tps, short_sl, summary)
                 time.sleep(6)
             else:
                 print(f"⚪ No dual-TF alignment for {symbol}.")
