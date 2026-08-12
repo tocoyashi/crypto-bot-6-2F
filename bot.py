@@ -67,7 +67,7 @@ def send_crypto_signal(coin_name, direction, strategy, entry, tp1, tp2, tp3, tp4
     clean_name = coin_name.replace("/", "")
     zone_low = round(entry * 0.999, get_decimals(entry))
     zone_high = round(entry * 1.001, get_decimals(entry))
-    text = f"📌 SIGNAL ID: #{signal_id}\nCOIN: #{clean_name} ({LEVERAGE})\nDirection: {direction_text} | Type: {strategy}\n➖➖➖➖➖➖➖\nENTRY: {zone_low} - {zone_high}\nTARGETS: {tp1} - {tp2} - {tp3} - {tp4}\nSTOP LOSS: {sl}\n\n📊 {summary_text}\n➖➖➖➖➖➖➖\nL E A K E D  B Y:  BULLS SIGNALS"
+    text = f"📌 SIGNAL ID: #{signal_id}\nCOIN: #{clean_name} ({LEVERAGE})\nDirection: {direction_text} | Type: {strategy}\n➖➖➖➖➖➖➖\nENTRY: {zone_low} - {zone_high}\nTARGETS: {tp1} - {tp2} - {tp3} - {tp4}\nSTOP LOSS: {sl}\n\n📊 {summary_text}\n➖➖➖➖➖➖➖\nL E A K E D  B Y:  @BULLS_SIGNALS"
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHANNEL_ID, "text": text, "disable_web_page_preview": True}
     try:
